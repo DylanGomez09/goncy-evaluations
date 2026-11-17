@@ -64,6 +64,8 @@ export default function Home() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const [lanes, setLanes] = useState(1);
+  const [retryNonce, setRetryNonce] = useState(0);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showToast = useCallback((msg: string) => {
@@ -107,6 +109,35 @@ export default function Home() {
     })();
     refreshHistory();
   }, [refreshHistory]);
+
+  // Procesamiento client-driven: 1 lane por IA elegida, cada tick procesa 1 proyecto
+  useEffect(() => {
+    if (!activeRunId) return;
+    if (!activeRun || activeRun.status !== "running") return;
+    let cancelled = false;
+    const laneCount = Math.max(1, lanes);
+    const lane = async () => {
+      for (let i = 0; i < 500 && !cancelled; i++) {
+        try {
+          const res = await fetch(`/api/runs/${activeRunId}/tick`, { method: "POST" });
+          if (!res.ok) {
+            await new Promise((r) => setTimeout(r, 2000));
+            continue;
+          }
+          const data = await res.json();
+          if (data?.status === "done") break;
+          await new Promise((r) => setTimeout(r, data?.claimed === undefined ? 1500 : 250));
+        } catch {
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+      }
+    };
+    Array.from({ length: laneCount }, lane);
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeRunId, retryNonce, activeRun?.status, lanes]);
 
   // Polling del run activo hasta que termine
   useEffect(() => {
@@ -196,6 +227,7 @@ export default function Home() {
       setActiveRunId(data.id);
       setActiveRun(null);
       setExpanded(null);
+      setLanes(chosen.length);
       showToast(`Análisis iniciado con ${chosen.join(" + ")} — ${links.length} proyectos. Los reparte entre las IAs elegidas.`);
       refreshHistory();
     } catch {
@@ -402,6 +434,20 @@ export default function Home() {
               <p className="hint" style={{ margin: 0 }}>{new Date(activeRun.createdAt).toLocaleString("es-AR")} · {activeRun.status === "running" ? "Analizando… (se actualiza solo)" : "Análisis terminado."} Click en una fila para ver el reporte completo.</p>
             </div>
             <div className="exports">
+              {activeRun.status === "done" && activeRun.projects.some((p) => p.status === "error") && (
+                <button
+                  className="btn-sm"
+                  onClick={async () => {
+                    const r = await fetch(`/api/runs/${activeRun.id}/retry`, { method: "POST" });
+                    const d = await r.json();
+                    showToast(`${d.requeued} proyecto(s) re-encolados para reanálisis`);
+                    setRetryNonce((n) => n + 1);
+                    refreshHistory();
+                  }}
+                >
+                  ↻ Reintentar fallidos ({activeRun.projects.filter((p) => p.status === "error").length})
+                </button>
+              )}
               <a className="btn-sm" href={`/api/runs/${activeRun.id}/export?format=csv`}>⬇ CSV</a>
               <a className="btn-sm" href={`/api/runs/${activeRun.id}/export?format=md`}>⬇ Markdown</a>
               <a className="btn-sm" href={`/api/runs/${activeRun.id}/export?format=json`}>⬇ JSON</a>

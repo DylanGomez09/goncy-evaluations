@@ -36,3 +36,20 @@ npm install
 - Repos privados solo con `GITHUB_TOKEN` con permisos.
 - Los tiers gratis cambian seguido; si un modelo se depreca ajustá `GEMINI_MODEL` / `GROQ_MODEL`.
 - La IA evalúa código y contenido; no ejecuta los proyectos ni abre el navegador.
+
+## Producción (Vercel)
+
+La app es **serverless-compatible**: no usa memoria compartida ni filesystem con estado. El procesamiento es *client-driven* — el navegador llama a `POST /api/runs/:id/tick` en loop (2 lanes, una por IA) y cada tick analiza **un** proyecto dentro del request, con locks `SET NX`, colas atómicas (`SPOP`) y barrido de jobs huérfanos.
+
+Para desplegar en Vercel:
+
+1. Importá el repo en Vercel (New Project → Import Git Repository).
+2. **Agregá las env vars** en Project → Settings → Environment Variables (Production):
+   - `GEMINI_API_KEY` y `GROQ_API_KEY` (tus claves), `GITHUB_TOKEN` opcional
+3. **Creá la base Redis**: Project → Storage → Create Database → **Redis (Upstash)** → Connect to Project. Esto agrega solo `UPSTASH_REDIS_REST_URL` y `UPSTASH_REDIS_REST_TOKEN`. Sin esto el deploy renderiza pero las corridas fallan.
+4. **Redeploy** (las env vars aplican a deploys nuevos).
+5. Si una corrida quedó con errores (rate limit, etc.): botón **↻ Reintentar fallidos** en el resultado.
+
+Plan Hobby de Vercel: cada tick tiene 60s de tope — alcanza para el flujo típico (leer repo + 1 llamada a la IA). Si un proyecto es enorme, el snapshot se trunca solo.
+
+En **local** no hace falta Redis: sin esas vars, usa `.data/db.json` como siempre.

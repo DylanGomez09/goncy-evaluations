@@ -29,8 +29,14 @@ export interface ChatResult {
   content: string;
 }
 
-export async function chatCompletion(cfg: ProviderConfig, system: string, user: string): Promise<string> {
-  const maxAttempts = 4;
+export interface ChatOptions {
+  timeoutMs?: number;
+  attempts?: number;
+}
+
+export async function chatCompletion(cfg: ProviderConfig, system: string, user: string, opts: ChatOptions = {}): Promise<string> {
+  const maxAttempts = opts.attempts ?? 4;
+  const timeoutMs = opts.timeoutMs ?? 180_000;
   let lastError = "Error desconocido";
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -52,7 +58,7 @@ export async function chatCompletion(cfg: ProviderConfig, system: string, user: 
             { role: "user", content: user },
           ],
         }),
-        signal: AbortSignal.timeout(180_000),
+        signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (e) {
       lastError = `Red/timeout al llamar a ${cfg.name}: ${e instanceof Error ? e.message : String(e)}`;

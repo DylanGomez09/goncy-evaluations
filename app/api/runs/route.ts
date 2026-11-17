@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listRuns, insertRun } from "@/lib/store";
-import { runAnalysis } from "@/lib/analyze";
+import { listRuns, createRun } from "@/lib/storage";
 import { getProviderConfig } from "@/lib/providers";
 import type { ProviderId, Run } from "@/lib/types";
 import crypto from "crypto";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 30;
 
 function summarize(run: Run) {
   const done = run.projects.filter((p) => p.status === "done");
@@ -25,7 +24,7 @@ function summarize(run: Run) {
 }
 
 export async function GET() {
-  const runs = listRuns();
+  const runs = await listRuns();
   return NextResponse.json({ runs: runs.map(summarize) });
 }
 
@@ -56,24 +55,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Ningún proveedor seleccionado tiene API key configurada en el .env." }, { status: 400 });
   }
 
-  const run: Run = {
-    id: crypto.randomUUID(),
-    createdAt: Date.now(),
-    criteria: criteria.trim(),
-    providerIds: usable,
-    status: "running",
-    projects: links.slice(0, 100).map((l, i) => ({
-      id: `${i}-${crypto.randomUUID().slice(0, 8)}`,
-      url: l.url,
-      name: l.name,
-      status: "pending",
-    })),
-  };
+  const id = crypto.randomUUID();
+  const projects: Run["projects"] = links.slice(0, 100).map((l, i) => ({
+    id: `${i}-${crypto.randomUUID().slice(0, 8)}`,
+    url: l.url,
+    name: l.name,
+    status: "pending",
+  }));
 
-  insertRun(run);
+  // Guardar meta + proyectos + encolar índices pendientes (SPOP/SADD atómicos)
+  await createRun(
+    {
+      id,
+      createdAt: Date.now(),
+      criteria: criteria.trim(),
+      providerIds: usable,
+      projectCount: projects.length,
+      status: "running",
+    },
+    projects
+  );
 
-  // Disparar el análisis en background (no bloquea la respuesta)
-  runAnalysis(run.id).catch((e) => console.error("runAnalysis falló:", e));
-
-  return NextResponse.json({ id: run.id });
+  return NextResponse.json({ id });
 }

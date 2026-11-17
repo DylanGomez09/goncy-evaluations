@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getRun } from "@/lib/store";
+import { getRun } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +15,7 @@ function verdictRank(p: { result?: { overall: number } }): number {
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const format = req.nextUrl.searchParams.get("format") ?? "json";
-  const run = getRun(id);
+  const run = await getRun(id);
   if (!run) return NextResponse.json({ error: "Run no encontrado." }, { status: 404 });
 
   const sorted = [...run.projects].sort((a, b) => verdictRank(b) - verdictRank(a));

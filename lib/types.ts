@@ -29,6 +29,7 @@ export interface ProjectResult {
   status: ProjectStatus;
   provider?: ProviderId;
   model?: string;
+  claimedAt?: number;
   repoInfo?: {
     description: string | null;
     language: string | null;
